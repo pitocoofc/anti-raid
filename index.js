@@ -1,75 +1,49 @@
-const noblox = require('noblox.js');
 const axios = require('axios');
+const http = require('http');
 
-// --- CONFIGURAÇÕES ---
-const GROUP_ID = 34914689; // ID do seu grupo já fixado
-const COOKIE = process.env.COOKIE; // Pega da variável do Railway
-const WEBHOOK_URL = process.env.WEBHOOK_URL; // Pega da variável do Railway
-const CHECK_INTERVAL = 30000; // Checa a cada 30 segundos
+// CONFIGURAÇÃO
+const GROUP_ID = 34914689;
+const COOKIE = process.env.COOKIE;
+const WEBHOOK = process.env.WEBHOOK_URL;
 
-let lastLogId = null;
+// Servidor fake para o Render/Koyeb não dar erro
+http.createServer((req, res) => res.end("Vigilante Ativo")).listen(process.env.PORT || 3000);
 
-async function sendDiscordMsg(embed) {
+let lastLogId = 0;
+
+async function checkLogs() {
     try {
-        await axios.post(WEBHOOK_URL, { embeds: [embed] });
-    } catch (err) {
-        console.error("Erro no Webhook:", err.message);
-    }
-}
+        const response = await axios.get(
+            `https://groups.roblox.com/v1/groups/${GROUP_ID}/audit-log?limit=10`,
+            { headers: { Cookie: `.ROBLOSECURITY=${COOKIE}` } }
+        );
 
-async function startBot() {
-    try {
-        const user = await noblox.setCookie(COOKIE);
-        console.log(`✅ Porteiro Kalashi Online: ${user.UserName}`);
-
-        // Pega o ID do último evento para não repetir avisos antigos
-        const initialLog = await noblox.getAuditLog(GROUP_ID, { limit: 1 });
-        if (initialLog.data.length > 0) {
-            lastLogId = initialLog.data[0].id;
+        const logs = response.data.data;
+        if (lastLogId === 0) {
+            lastLogId = logs[0]?.id || 0;
+            console.log("Sistema iniciado. Monitorando...");
+            return;
         }
 
-        setInterval(async () => {
-            try {
-                const logs = await noblox.getAuditLog(GROUP_ID, { limit: 5 });
-                const newLogs = logs.data.filter(log => log.id > lastLogId).reverse();
-
-                for (const log of newLogs) {
-                    let title = "🛠️ ALTERAÇÃO NO GRUPO";
-                    let description = `**Ação:** ${log.action}\n**Por:** ${log.actor.user.username}`;
-                    let color = 3447003; 
-
-                    if (log.action === "Invite Player" || log.action === "Accept Join Request") {
-                        title = "🚀 NOVO MEMBRO";
-                        description = `**${log.description.TargetName}** entrou no grupo!`;
-                        color = 65280; 
-                    } else if (log.action === "Change Rank") {
-                        title = "⬆️ CARGO ALTERADO";
-                        description = `**${log.description.TargetName}** subiu para **${log.description.NewRoleName}**`;
-                        color = 16776960;
-                    } else if (log.action === "Remove Member") {
-                        title = "❌ REMOÇÃO";
-                        description = `**${log.description.TargetName}** foi removido.`;
-                        color = 16711680;
-                    }
-
-                    await sendDiscordMsg({
-                        title: title,
-                        description: description,
-                        color: color,
-                        timestamp: new Date(),
-                        footer: { text: "Sistema de Vigilância Kalashi" }
-                    });
-
-                    lastLogId = log.id;
-                }
-            } catch (e) {
-                console.log("Aguardando novos eventos...");
+        for (const log of logs) {
+            if (log.id > lastLogId) {
+                console.log(`Novo evento: ${log.actionType}`);
+                await axios.post(WEBHOOK, {
+                    embeds: [{
+                        title: "🚨 Alerta de Auditoria",
+                        description: `**Ação:** ${log.actionType}\n**Usuário:** ${log.actor.user.username}`,
+                        color: 3447003,
+                        timestamp: new Date()
+                    }]
+                });
             }
-        }, CHECK_INTERVAL);
+        }
+        if (logs.length > 0) lastLogId = logs[0].id;
 
     } catch (err) {
-        console.error("❌ Erro de Login (Verifique o Cookie):", err.message);
+        console.error("Erro na requisição:", err.response?.status || err.message);
     }
 }
 
-startBot();
+// Verifica a cada 40 segundos
+setInterval(checkLogs, 40000);
