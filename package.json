@@ -1,11 +1,12 @@
 {
-  "name": "roblox-lite",
+  "name": "bot-vigilante-kalashi",
   "version": "1.0.0",
+  "description": "Bot de moderação via API Key Roblox",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
   "dependencies": {
     "axios": "^1.6.0"
+  },
+  "scripts": {
+    "start": "node index.js"
   }
 }
